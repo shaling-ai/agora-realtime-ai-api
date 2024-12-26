@@ -40,12 +40,16 @@ class RtcOptions:
         sample_rate: int = 24000,
         channels: int = 1,
         enable_pcm_dump: bool = False,
+        enable_vad: bool = False,
+        vad_configs: any = {},
     ):
         self.channel_name = channel_name
         self.uid = uid
         self.sample_rate = sample_rate
         self.channels = channels
         self.enable_pcm_dump = enable_pcm_dump
+        self.enable_vad = enable_vad
+        self.vad_configs = vad_configs
 
     def build_token(self, appid: str, appcert: str) -> str:
         return RealtimekitTokenBuilder.build_token(
@@ -143,7 +147,7 @@ class ChannelEventObserver(
         )
 
     def on_playback_audio_frame_before_mixing(
-        self, agora_local_user: LocalUser, channelId, uid, frame: AudioFrame
+        self, agora_local_user: LocalUser, channelId, uid, frame: AudioFrame, vad_result_state:int, vad_result_bytearray:bytearray
     ):
         audio_frame = PcmAudioFrame()
         audio_frame.samples_per_channel = frame.samples_per_channel
@@ -199,7 +203,7 @@ class Channel:
             options.channels, options.sample_rate
         )
         self.local_user.register_local_user_observer(self.channel_event_observer)
-        self.local_user.register_audio_frame_observer(self.channel_event_observer)
+        self.local_user.register_audio_frame_observer(self.channel_event_observer, self.options.enable_vad, self.options.vad_configs)
         # self.local_user.subscribe_all_audio()
 
         self.media_node_factory = self.rtc.agora_service.create_media_node_factory()
@@ -353,10 +357,10 @@ class Channel:
             len(frame) / audio_frame.bytes_per_sample / audio_frame.number_of_channels
         )
 
-        ret = self.audio_pcm_data_sender.send_audio_pcm_data(audio_frame)
-        logger.debug(f"Pushed audio frame: {ret}, audio frame length: {len(frame)}")
-        if ret < 0:
-            raise Exception(f"Failed to send audio frame: {ret}, audio frame length: {len(frame)}")
+        self.audio_pcm_data_sender.send_audio_pcm_data(audio_frame)
+        logger.debug(f"Pushed audio frame length: {len(frame)}")
+        #if ret < 0:
+        #    raise Exception(f"Failed to send audio frame: {ret}, audio frame length: {len(frame)}")
 
     async def clear_sender_audio_buffer(self) -> None:
         """
