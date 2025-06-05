@@ -269,7 +269,8 @@ class Channel:
                     exc_info=t.exception(),
                 )
 
-        asyncio.create_task(self._process_stream_message()).add_done_callback(log_exception)
+        self.stream_message_task = asyncio.create_task(self._process_stream_message())
+        self.stream_message_task.add_done_callback(log_exception)
 
     async def connect(self) -> None:
         """
@@ -317,6 +318,7 @@ class Channel:
         """
         Disconnects the channel.
         """
+        logger.info(f"ai call Disconnecting from channel {self.channelId}")
         if self.connection_state == 1:
             return
 
@@ -328,7 +330,21 @@ class Channel:
                 disconnected_future.set_result(None)
 
         self.on("connection_state_changed", callback)
+        if self.stream_message_task:
+            self.stream_message_task.cancel()
+            try:
+                await self.stream_message_task
+            except asyncio.CancelledError:
+                logger.info(f"ai call stream message task cancelled")
+        if self.chat.message_task:
+            self.chat.message_task.cancel()
+            try:
+                await self.chat.message_task
+            except asyncio.CancelledError:
+                logger.info(f"ai call message task cancelled")
+        
         self.connection.disconnect()
+        self.connection.release()
         await disconnected_future
 
     def get_audio_frames(self, uid: int) -> AudioStream | None:
@@ -448,15 +464,17 @@ class Channel:
         """
         Processes stream messages.
         """
-        while True:
-            item = await self.stream_message_queue.get()
-            ret = self.connection.send_stream_message(self.stream_id, item)
-            if ret < 0:
-                logger.error(f"Failed to send stream message: {ret}")
-            self.stream_message_queue.task_done()
-            # wait to avoid too frequent message sending
-            await asyncio.sleep(0.04)
-            
+        try:
+            while True:
+                item = await self.stream_message_queue.get()
+                ret = self.connection.send_stream_message(self.stream_id, item)
+                if ret < 0:
+                    logger.error(f"Failed to send stream message: {ret}")
+                self.stream_message_queue.task_done()
+                # wait to avoid too frequent message sending
+                await asyncio.sleep(0.04)
+        except asyncio.CancelledError:
+            logger.info(f"Channel closed, stop processing stream message")
 
     async def send_stream_message(self, data: str) -> None:
         """
@@ -523,7 +541,8 @@ class Chat:
                     exc_info=t.exception(),
                 )
 
-        asyncio.create_task(self._process_message()).add_done_callback(log_exception)
+        self.message_task = asyncio.create_task(self._process_message())
+        self.message_task.add_done_callback(log_exception)
 
     async def send_message(self, item: ChatMessage) -> None:
         """
@@ -597,14 +616,15 @@ class Chat:
         """
         Processes messages in the queue.
         """
-
-        while True:
-            item: ChatMessage = await self.queue.get()
-            chunks = self._text_to_base64_chunks(item.message, item.msg_id)
-            for chunk in chunks:
-                await self.channel.send_stream_message(chunk)
-            self.queue.task_done()
-
+        try:
+            while True:
+                item: ChatMessage = await self.queue.get()
+                chunks = self._text_to_base64_chunks(item.message, item.msg_id)
+                for chunk in chunks:
+                    await self.channel.send_stream_message(chunk)
+                self.queue.task_done()
+        except asyncio.CancelledError:
+            logger.info(f"Channel closed, stop processing message")
 
 class RtcEngine:
     def __init__(self, appid: str, appcert: str):
