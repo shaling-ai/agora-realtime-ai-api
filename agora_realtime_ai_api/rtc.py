@@ -344,8 +344,8 @@ class Channel:
                 logger.info(f"ai call message task cancelled")
         
         self.connection.disconnect()
-        self.connection.release()
         await disconnected_future
+        self.connection.release()
 
     def get_audio_frames(self, uid: int) -> AudioStream | None:
         """
