@@ -342,10 +342,21 @@ class Channel:
                 await self.chat.message_task
             except asyncio.CancelledError:
                 logger.info(f"ai call message task cancelled")
-        
+        self.local_user.unpublish_audio(self.audio_track)
+        self.audio_track.set_enabled(0)
+        self.local_user.unregister_audio_frame_observer()
+        self.local_user.unregister_video_frame_observer()
+        self.local_user.unregister_local_user_observer()
         self.connection.disconnect()
         await disconnected_future
+
+      
+        self.connection.unregister_observer()
+        self.local_user.release()
         self.connection.release()
+        self.local_user = None
+        self.connection = None
+       
 
     def get_audio_frames(self, uid: int) -> AudioStream | None:
         """
