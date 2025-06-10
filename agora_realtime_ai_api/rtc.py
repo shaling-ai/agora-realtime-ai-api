@@ -330,7 +330,7 @@ class Channel:
         self.on("connection_state_changed", callback)
         self.connection.disconnect()
         await disconnected_future
-        self.connection.release()
+        #self.connection.release()
 
     def get_audio_frames(self, uid: int) -> AudioStream | None:
         """
